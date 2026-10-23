@@ -1,34 +1,39 @@
 name: Release
 
-# A v* tag publishes @bydawn/dryrun to npm with provenance and writes the release notes.
-# A manual run with dry_run packs and runs `npm publish --dry-run`: nothing leaves CI.
+# The dry run of the release every By Dawn package gets. This repository is the
+# rehearsal and is never published: on a v* tag or a manual run alike, it installs,
+# tests, builds, packs and runs `npm publish --dry-run`, and nothing leaves CI. It
+# holds no npm token and asks for no write permission. The real packages' release
+# workflow (the template's) adds the publish and release jobs this one leaves out.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Pack and dry-run the publish without publishing
+        description: Always a dry run here; this package is never published
         type: boolean
         default: true
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency: release
 
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
@@ -43,20 +48,9 @@ jobs:
             echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
             exit 1
           fi
-      - name: Publish (dry run)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: npm publish --dry-run --access public
-      - name: Publish with provenance
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Release notes
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Pack
         run: |
-          at="$(TZ=UTC date +%H:%M)"
-          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes \
-            --title "bydawn-dryrun ${GITHUB_REF_NAME}" \
-            --notes "Released ${at} UTC. What changed overnight: https://www.npmjs.com/package/@bydawn/dryrun/v/${GITHUB_REF_NAME#v}"
+          mkdir -p pack
+          npm pack --ignore-scripts --pack-destination pack
+      - name: Publish (dry run, always)
+        run: npm publish --dry-run --ignore-scripts --access public pack/*.tgz

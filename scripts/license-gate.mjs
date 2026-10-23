@@ -7,7 +7,8 @@
  *      (GPL, AGPL, LGPL, SSPL, Business Source, Commons Clause, Elastic, non-commercial or no-derivatives Creative
  *      Commons, proprietary or commercial), or
  *   3. one carries a licence this gate cannot name, and no entry in license-clarifications.json vouches for it
- *      (`{ "package": "name", "license": "MIT", "reason": "…" }`).
+ *      (`{ "package": "name", "license": "MIT", "reason": "…" }`). The gate names only the licences in ALLOWED; any
+ *      other id, however harmless it sounds, counts as unnamed until a person vouches for it.
  *
  * npm: reads every package.json under node_modules (install first). Go: reads `go list -m -json all` and each
  * module's LICENSE file (run `go mod download` first). No dependencies of its own.
@@ -26,20 +27,44 @@ const ROOT = join(dirname(SELF), '..');
 /** SHA-256 of https://www.apache.org/licenses/LICENSE-2.0.txt, the file GitHub's licence detector matches. */
 export const APACHE_2_SHA256 = 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30';
 
+/** The SPDX ids a dependency may carry, compared case-insensitively. A `WITH` exception is judged by its base id. */
+export const ALLOWED = [
+  '0BSD',
+  'Apache-2.0',
+  'BlueOak-1.0.0',
+  'BSD-2-Clause',
+  'BSD-3-Clause',
+  'CC-BY-3.0',
+  'CC-BY-4.0',
+  'CC0-1.0',
+  'ISC',
+  'MIT',
+  'MIT-0',
+  'MPL-2.0',
+  'Python-2.0',
+  'Unlicense',
+  'Zlib',
+];
+
 export const DENIED = [
   /^(?:A|L)?GPL\b/i,
   /^SSPL\b/i,
   /^BUSL\b/i,
   /^BSL$/i,
   /^BSL-1\.1$/i,
+  /Business Source/i,
   /Commons[- ]Clause/i,
   /^Elastic\b/i,
   /^WTFPL$/i,
   /^CC-BY(?:-SA)?-NC/i,
   /^CC-BY(?:-NC)?-ND/i,
-  /^PROPRIETARY$/i,
-  /^COMMERCIAL$/i,
+  /PolyForm/i,
+  /Non-?Commercial/i,
+  /^PROPRIETARY\b/i,
+  /^COMMERCIAL\b/i,
 ];
+
+const ALLOWED_IDS = new Set(ALLOWED.map((id) => id.toLowerCase()));
 
 const UNNAMED = /^(?:UNKNOWN|UNLICENSED|SEE LICENSE IN\b|Custom:|LicenseRef-)/i;
 
@@ -51,12 +76,20 @@ export function alternatives(expression) {
     .map((alt) => alt.split(/\s+AND\s+/i).map((id) => id.trim()).filter(Boolean));
 }
 
+/** 'ok' | 'denied' | 'unnamed' for one licence id; `X WITH exception` is judged as X. */
+export function judgeId(id) {
+  const base = id.split(/\s+WITH\s+/i)[0].trim();
+  if (DENIED.some((re) => re.test(base))) return 'denied';
+  if (ALLOWED_IDS.has(base.toLowerCase())) return 'ok';
+  return 'unnamed';
+}
+
 /** 'ok' | 'denied' | 'unnamed' for one SPDX expression. */
 export function judge(expression) {
   if (!expression || UNNAMED.test(expression.trim())) return 'unnamed';
   const alts = alternatives(expression);
-  if (alts.some((ids) => ids.length && ids.every((id) => !DENIED.some((re) => re.test(id)) && !UNNAMED.test(id)))) return 'ok';
-  if (alts.every((ids) => ids.some((id) => DENIED.some((re) => re.test(id))))) return 'denied';
+  if (alts.some((ids) => ids.length && ids.every((id) => judgeId(id) === 'ok'))) return 'ok';
+  if (alts.every((ids) => ids.some((id) => judgeId(id) === 'denied'))) return 'denied';
   return 'unnamed';
 }
 
@@ -107,22 +140,26 @@ export function npmInventory(root) {
   return [...seen.values()];
 }
 
-/** Every Go module in the build list except the main one: [{ name, version, license }]. */
+/**
+ * Every Go module compiled into this module's packages and their tests, except the main one: [{ name, version,
+ * license }]. `go list -deps` (not `go list -m all`) so the gate judges what is built, not every module the graph
+ * mentions; those others are never downloaded and could not be read anyway.
+ */
 export function goInventory(root) {
-  const out = execFileSync('go', ['list', '-m', '-json', 'all'], { cwd: root, encoding: 'utf8' });
-  const modules = [];
-  for (const chunk of out.split(/\n(?=\{)/)) {
-    if (!chunk.trim()) continue;
-    const m = JSON.parse(chunk);
-    if (m.Main) continue;
+  const format = '{{with .Module}}{{if not .Main}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}{{end}}';
+  const out = execFileSync('go', ['list', '-deps', '-test', '-f', format, './...'], { cwd: root, encoding: 'utf8' });
+  const modules = new Map();
+  for (const row of out.split('\n')) {
+    const [path, version, dir] = row.split('\t');
+    if (!path || modules.has(path)) continue;
     let license;
-    if (m.Dir && existsSync(m.Dir)) {
-      const file = readdirSync(m.Dir).find((f) => /^(?:LICEN[CS]E|COPYING)(?:\.(?:md|txt))?$/i.test(f));
-      if (file) license = classifyLicenseText(readFileSync(join(m.Dir, file), 'utf8'));
+    if (dir && existsSync(dir)) {
+      const file = readdirSync(dir).find((f) => /^(?:LICEN[CS]E|COPYING)(?:\.(?:md|txt))?$/i.test(f));
+      if (file) license = classifyLicenseText(readFileSync(join(dir, file), 'utf8'));
     }
-    modules.push({ name: m.Path, version: m.Version, license });
+    modules.set(path, { name: path, version, license });
   }
-  return modules;
+  return [...modules.values()];
 }
 
 /** Violations for an inventory, given the clarifications and our own package name(s). */

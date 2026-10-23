@@ -5,10 +5,12 @@
  * under.
  *
  * Two kinds of term:
- *   - WORDS are listed only as hashes (the first 16 hex of the SHA-256 of the lower-cased word, or of two words joined
- *     by a space), so this file does not publish the words it keeps out. Every word and pair of words in a tracked file
- *     is hashed and looked up.
+ *   - WORDS are listed only as hashes (the first 16 hex of the SHA-256 of the lower-cased word, of two words joined
+ *     by a space, or of a dashed name such as a repository's), so this file does not publish the words it keeps out.
+ *     Every word, pair of words and run of two or more dash-joined parts in a tracked file is hashed and looked up.
  *   - PATTERNS are plain regular expressions, for shapes that say nothing on their own.
+ *
+ * Binary files are scanned too, by the printable runs inside them (as `strings` would show them).
  *
  * A hit fails unless an entry in reference-allowlist.json covers it (`{ "path": "…", "term": "<id>", "reason": "…" }`;
  * every entry must give a reason, and an entry that covers nothing fails too, so the list cannot go stale).
@@ -32,13 +34,28 @@ export const DENIED_WORDS = {
   'internal-name-4': 'e98dcad8dd8ada2b',
   'internal-phrase-1': '3fc7f317a816e60a',
   'internal-phrase-2': '01bbac405821b4e3',
+  // Internal repository names, dashed: matched only as written with the dash, never as two English words.
+  'internal-repo-name-1': '67b91b4a31982aaf',
+  'internal-repo-name-2': '05241e505a5fb1c3',
+  'internal-repo-name-3': 'bd7e94d0c54f7b32',
+  'internal-repo-name-4': 'aec87c164486dc10',
+  'internal-repo-name-5': '2ceb159284bc5211',
+  'internal-repo-name-6': '28fbad8f1c15b550',
+  'internal-repo-name-7': 'f72d6516559fa73c',
+  'internal-repo-name-8': '46b5460d6b9d8186',
+  'internal-repo-name-9': '83bd9a2c89c8167d',
+  'internal-repo-name-10': '9bbe82e948a8699f',
+  'internal-repo-name-11': 'ea38e330cfdc5f2f',
+  'internal-repo-name-12': 'cf1dcf0e50d6c779',
 };
 
 /** Plain patterns: `flags` defaults to case-insensitive. */
 export const DENIED_PATTERNS = [
   { id: 'ticket-ref', pattern: '\\b(?:SAW|SKYN)-[0-9A-Z]+\\b', flags: '', fix: 'drop internal ticket references' },
   { id: 'internal-product', pattern: '\\bSAW\\b', flags: '', fix: 'say By Dawn' },
-  { id: 'private-scope', pattern: '@lendercom/saw-|@saw/', fix: 'use the public @bydawn/ scope' },
+  // The whole private npm scope. Case-sensitive on purpose: npm scopes are always lower case, while a GitHub team
+  // such as the CODEOWNERS entry is written @LenderCom/<team> and is public.
+  { id: 'private-scope', pattern: '@lendercom/|@saw/', flags: '', fix: 'use the public @bydawn/ scope' },
   { id: 'internal-repo', pattern: 'lendercom/saw-', fix: 'name the public repository, or nothing' },
   { id: 'internal-email', pattern: '@lender\\.com', fix: 'use an example.com address' },
   { id: 'internal-host', pattern: '\\.azurewebsites\\.net|\\.internal\\b', fix: 'use a placeholder host such as app.example.com' },
@@ -61,6 +78,15 @@ export function lineHits(line) {
     if (i + 1 < words.length) {
       const two = BY_HASH.get(hash(`${words[i]} ${words[i + 1]}`));
       if (two) ids.add(two);
+    }
+  }
+  for (const dashed of line.toLowerCase().match(/[a-z0-9]+(?:-[a-z0-9]+)+/g) ?? []) {
+    const parts = dashed.split('-');
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = i + 2; j <= parts.length; j++) {
+        const id = BY_HASH.get(hash(parts.slice(i, j).join('-')));
+        if (id) ids.add(id);
+      }
     }
   }
   for (const m of MATCHERS) if (m.re.test(line)) ids.add(m.id);
@@ -99,6 +125,11 @@ export function scan(files, allowlist = []) {
   return { hits, problems };
 }
 
+/** A binary file's printable runs of six or more characters, one per line: what a name or key embedded in it looks like. */
+export function binaryStrings(buf) {
+  return (buf.toString('latin1').match(/[\x20-\x7e]{6,}/g) ?? []).join('\n');
+}
+
 function trackedFiles(root) {
   const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
   const files = {};
@@ -106,8 +137,7 @@ function trackedFiles(root) {
     const abs = join(root, rel);
     if (abs === SELF || !existsSync(abs)) continue;
     const buf = readFileSync(abs);
-    if (buf.includes(0)) continue; // binary
-    files[rel] = buf.toString('utf8');
+    files[rel] = buf.includes(0) ? binaryStrings(buf) : buf.toString('utf8');
   }
   return files;
 }

@@ -28,7 +28,7 @@ An agent can't mark its own homework, and neither can we: every pull request run
 
 ## Releases
 
-Maintainers tag releases. A tag publishes `@bydawn/dryrun` to npm with provenance, and the release notes say what changed overnight. We don't keep a private copy of this code; By Dawn picks up each release like anyone else.
+This repository is the rehearsal, and `@bydawn/dryrun` is never published. A tag, like a manual run of Release, only packs the package and runs `npm publish --dry-run`: nothing leaves CI. The real By Dawn packages publish to npm with provenance when a maintainer tags a release, and their release notes say what changed overnight.
 
 ## Licence
 
