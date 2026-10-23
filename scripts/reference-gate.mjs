@@ -61,22 +61,22 @@ export const DENIED_PATTERNS = [
   { id: 'internal-host', pattern: '\\.azurewebsites\\.net|\\.internal\\b', fix: 'use a placeholder host such as app.example.com' },
 ];
 
-function hash(s) {
+export function hash(s) {
   return createHash('sha256').update(s).digest('hex').slice(0, 16);
 }
 
 const BY_HASH = new Map(Object.entries(DENIED_WORDS).map(([id, h]) => [h, id]));
 const MATCHERS = DENIED_PATTERNS.map((p) => ({ ...p, re: new RegExp(p.pattern, p.flags ?? 'i') }));
 
-/** The term ids one line hits. */
-export function lineHits(line) {
+/** The term ids one line hits. `byHash` (hash → id) defaults to DENIED_WORDS; the tests pass their own. */
+export function lineHits(line, byHash = BY_HASH) {
   const ids = new Set();
   const words = line.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   for (let i = 0; i < words.length; i++) {
-    const one = BY_HASH.get(hash(words[i]));
+    const one = byHash.get(hash(words[i]));
     if (one) ids.add(one);
     if (i + 1 < words.length) {
-      const two = BY_HASH.get(hash(`${words[i]} ${words[i + 1]}`));
+      const two = byHash.get(hash(`${words[i]} ${words[i + 1]}`));
       if (two) ids.add(two);
     }
   }
@@ -84,7 +84,7 @@ export function lineHits(line) {
     const parts = dashed.split('-');
     for (let i = 0; i < parts.length; i++) {
       for (let j = i + 2; j <= parts.length; j++) {
-        const id = BY_HASH.get(hash(parts.slice(i, j).join('-')));
+        const id = byHash.get(hash(parts.slice(i, j).join('-')));
         if (id) ids.add(id);
       }
     }
@@ -106,13 +106,13 @@ export function allowlistProblems(allowlist) {
 }
 
 /** Scan `files` (path → text). Returns the uncovered hits and the allow-list problems. */
-export function scan(files, allowlist = []) {
+export function scan(files, allowlist = [], byHash = BY_HASH) {
   const problems = allowlistProblems(allowlist);
   const used = new Set();
   const hits = [];
   for (const [path, text] of Object.entries(files)) {
     text.split('\n').forEach((line, i) => {
-      for (const term of lineHits(line)) {
+      for (const term of lineHits(line, byHash)) {
         const cover = allowlist.findIndex((e) => (e.path === path || (e.path.endsWith('/') && path.startsWith(e.path))) && (!e.term || e.term === term));
         if (cover >= 0) used.add(cover);
         else hits.push({ path, line: i + 1, term });
