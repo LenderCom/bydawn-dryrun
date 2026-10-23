@@ -1,0 +1,62 @@
+name: Release
+
+# A v* tag publishes @bydawn/dryrun to npm with provenance and writes the release notes.
+# A manual run with dry_run packs and runs `npm publish --dry-run`: nothing leaves CI.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Pack and dry-run the publish without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency: release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+      - run: node scripts/reference-gate.mjs
+      - run: node scripts/license-gate.mjs
+      - name: The tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+      - name: Publish (dry run)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm publish --dry-run --access public
+      - name: Publish with provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          at="$(TZ=UTC date +%H:%M)"
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes \
+            --title "bydawn-dryrun ${GITHUB_REF_NAME}" \
+            --notes "Released ${at} UTC. What changed overnight: https://www.npmjs.com/package/@bydawn/dryrun/v/${GITHUB_REF_NAME#v}"
