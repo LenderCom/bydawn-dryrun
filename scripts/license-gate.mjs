@@ -136,8 +136,12 @@ export function judge(expression) {
   } catch {
     // A garbled expression cannot be trusted to offer a way out: if it names a denied licence anywhere, it is denied,
     // so no clarification can vouch it through. Otherwise it is unnamed, like any licence the gate cannot read.
-    const ids = expression.split(/[\s()]+/).filter((w) => w && !/^(?:AND|OR|WITH)$/i.test(w));
-    return ids.some((id) => judgeId(id) === 'denied') ? 'denied' : 'unnamed';
+    // Candidates are each operand between AND/OR (parentheses dropped), so a multi-word name such as
+    // `Business Source License 1.1` or `Commons Clause` stays whole, and each single word, as before.
+    const flat = expression.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+    const operands = flat.split(/(?:^|\s+)(?:AND|OR)(?=\s|$)/i).map((o) => o.trim()).filter(Boolean);
+    const words = flat.split(' ').filter((w) => w && !/^(?:AND|OR|WITH)$/i.test(w));
+    return [...operands, ...words].some((id) => judgeId(id) === 'denied') ? 'denied' : 'unnamed';
   }
   if (alts.some((ids) => ids.every((id) => judgeId(id) === 'ok'))) return 'ok';
   if (alts.every((ids) => ids.some((id) => judgeId(id) === 'denied'))) return 'denied';

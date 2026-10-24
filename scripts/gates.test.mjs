@@ -14,6 +14,10 @@ describe('the licence gate', () => {
 
   it('denies a garbled expression that names a denied licence, so no clarification can vouch it through', () => {
     for (const garbled of ['GPL-3.0 OR', '(GPL-3.0', 'GPL-3.0)', 'AGPL-3.0 AND AND MIT', '(MIT OR SSPL-1.0']) expect(judge(garbled)).toBe('denied');
+    // Multi-word denied names stay whole in the fallback.
+    for (const garbled of ['(Business Source License 1.1', '(Apache-2.0 AND Commons Clause', '(MIT OR Commons Clause', 'Business Source License 1.1 OR'])
+      expect(judge(garbled)).toBe('denied');
+    expect(violations([{ name: 'z', version: '1', license: '(Business Source License 1.1' }], [{ package: 'z', license: 'MIT', reason: 'trust me' }], [])).toHaveLength(1);
     expect(violations([{ name: 'x', version: '1', license: 'GPL-3.0 OR' }], [{ package: 'x', license: 'MIT', reason: 'trust me' }], [])).toHaveLength(1);
     // Garbled but naming nothing denied: unnamed, and a clarification may vouch for it.
     expect(judge('(MIT OR')).toBe('unnamed');
