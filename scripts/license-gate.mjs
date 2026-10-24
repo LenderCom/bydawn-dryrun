@@ -27,7 +27,7 @@ const ROOT = join(dirname(SELF), '..');
 /** SHA-256 of https://www.apache.org/licenses/LICENSE-2.0.txt, the file GitHub's licence detector matches. */
 export const APACHE_2_SHA256 = 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30';
 
-/** The SPDX ids a dependency may carry, compared case-insensitively. A `WITH` exception is judged by its base id. */
+/** The SPDX ids a dependency may carry, compared case-insensitively. A `WITH` exception is judged by its base id, unless it names a denied family. */
 export const ALLOWED = [
   '0BSD',
   'Apache-2.0',
@@ -119,10 +119,13 @@ export function alternatives(expression) {
   return alts;
 }
 
-/** 'ok' | 'denied' | 'unnamed' for one licence id; `X WITH exception` is judged as X. */
+/**
+ * 'ok' | 'denied' | 'unnamed' for one licence id. `X WITH exception` is allowed or unnamed by X alone, but denied when
+ * X or the exception names a denied family: an exception can add a restriction (`Apache-2.0 WITH Commons-Clause`).
+ */
 export function judgeId(id) {
-  const base = id.split(/\s+WITH\s+/i)[0].trim();
-  if (DENIED.some((re) => re.test(base))) return 'denied';
+  const [base, ...exceptions] = id.split(/\s+WITH\s+/i).map((part) => part.trim());
+  if ([base, ...exceptions].some((part) => DENIED.some((re) => re.test(part)))) return 'denied';
   if (ALLOWED_IDS.has(base.toLowerCase())) return 'ok';
   return 'unnamed';
 }

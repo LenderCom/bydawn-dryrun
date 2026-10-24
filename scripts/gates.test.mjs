@@ -47,6 +47,13 @@ describe('the licence gate', () => {
     expect(judge('CC-BY-NC-4.0')).toBe('denied');
     expect(judge('CC-BY-ND-4.0')).toBe('denied');
     expect(judge('Elastic-2.0')).toBe('denied');
+    // A denied family written as the exception is denied too, and no clarification can vouch it through.
+    for (const id of ['Apache-2.0 WITH Commons-Clause', 'Apache-2.0 WITH Commons Clause', 'MIT with commons-clause', '(Apache-2.0 WITH Commons-Clause) OR GPL-3.0'])
+      expect(judge(id)).toBe('denied');
+    expect(judge('MIT OR Apache-2.0 WITH Commons-Clause')).toBe('ok');
+    for (const garbled of ['(Apache-2.0 WITH Commons Clause', 'Apache-2.0 WITH Commons-Clause)', '(MIT WITH Commons Clause OR'])
+      expect(judge(garbled)).toBe('denied');
+    expect(violations([{ name: 'w', version: '1', license: '(Apache-2.0 WITH Commons Clause' }], [{ package: 'w', license: 'Apache-2.0', reason: 'trust me' }], [])).toHaveLength(1);
   });
 
   it('takes one acceptable alternative of an OR, but every id of an AND', () => {
