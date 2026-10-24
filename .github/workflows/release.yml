@@ -1,0 +1,56 @@
+name: Release
+
+# The dry run of the release every By Dawn package gets. This repository is the
+# rehearsal and is never published: on a v* tag or a manual run alike, it installs,
+# tests, builds, packs and runs `npm publish --dry-run`, and nothing leaves CI. It
+# holds no npm token and asks for no write permission. The real packages' release
+# workflow (the template's) adds the publish and release jobs this one leaves out.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Always a dry run here; this package is never published
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency: release
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+      - run: node scripts/reference-gate.mjs
+      - run: node scripts/license-gate.mjs
+      - name: The tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+      - name: Pack
+        run: |
+          mkdir -p pack
+          npm pack --ignore-scripts --pack-destination pack
+      - name: Publish (dry run, always)
+        run: npm publish --dry-run --ignore-scripts --access public pack/*.tgz

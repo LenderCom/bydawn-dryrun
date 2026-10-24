@@ -1,0 +1,37 @@
+{
+  "name": "@bydawn/dryrun",
+  "version": "0.1.0",
+  "description": "The By Dawn open-source template, run once end to end on a tiny clock. Not for use.",
+  "license": "Apache-2.0",
+  "author": "Lender Software Solutions LLC",
+  "homepage": "https://github.com/LenderCom/bydawn-dryrun#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LenderCom/bydawn-dryrun.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LenderCom/bydawn-dryrun/issues"
+  },
+  "keywords": [
+    "bydawn"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
