@@ -48,6 +48,33 @@ describe('the licence gate', () => {
     expect(judge('MIT AND BSD')).toBe('unnamed');
   });
 
+  it('groups parentheses first and binds AND tighter than OR, so a required id is never dropped', () => {
+    expect(alternatives('GPL-3.0 AND (MIT OR BSD-3-Clause)')).toEqual([
+      ['GPL-3.0', 'MIT'],
+      ['GPL-3.0', 'BSD-3-Clause'],
+    ]);
+    expect(alternatives('(MIT OR Apache-2.0) AND Unicode-DFS-2016')).toEqual([
+      ['MIT', 'Unicode-DFS-2016'],
+      ['Apache-2.0', 'Unicode-DFS-2016'],
+    ]);
+    expect(alternatives('MIT OR Apache-2.0 AND GPL-3.0')).toEqual([['MIT'], ['Apache-2.0', 'GPL-3.0']]);
+    expect(alternatives('(Apache-2.0 WITH LLVM-exception) or MIT')).toEqual([['Apache-2.0 WITH LLVM-exception'], ['MIT']]);
+    expect(judge('GPL-3.0 AND (MIT OR BSD-3-Clause)')).toBe('denied');
+    expect(judge('(MIT OR Apache-2.0) AND Unicode-DFS-2016')).toBe('unnamed');
+    expect(judge('(MIT OR GPL-3.0) AND (Apache-2.0 OR GPL-3.0)')).toBe('ok');
+    expect(judge('((MIT))')).toBe('ok');
+    expect(judge('MIT License')).toBe('unnamed');
+  });
+
+  it('calls a malformed expression unnamed rather than guessing at it', () => {
+    expect(() => alternatives('(MIT OR Apache-2.0')).toThrow('missing )');
+    expect(judge('(MIT OR Apache-2.0')).toBe('unnamed');
+    expect(judge('MIT OR')).toBe('unnamed');
+    expect(judge('MIT AND AND ISC')).toBe('unnamed');
+    expect(judge('MIT) OR (ISC')).toBe('unnamed');
+    expect(judge('()')).toBe('unnamed');
+  });
+
   it('lets a person vouch for an unnamed licence, never for a denied one, and skips our own package', () => {
     const inventory = [
       { name: 'a', version: '1.0.0', license: 'MIT' },

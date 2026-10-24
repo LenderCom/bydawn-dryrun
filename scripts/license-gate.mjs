@@ -68,12 +68,55 @@ const ALLOWED_IDS = new Set(ALLOWED.map((id) => id.toLowerCase()));
 
 const UNNAMED = /^(?:UNKNOWN|UNLICENSED|SEE LICENSE IN\b|Custom:|LicenseRef-)/i;
 
-/** `(A OR B)` → [[A], [B]]; `(A AND B)` → [[A, B]]. One alternative whose ids are all acceptable is enough. */
+/**
+ * An SPDX expression → its alternatives, each the list of ids that must all be acceptable: `A OR B` → [[A], [B]];
+ * `A AND B` → [[A, B]]; `A AND (B OR C)` → [[A, B], [A, C]]. Parentheses group first, then AND binds tighter than
+ * OR, as SPDX defines. Operators match in any case; adjacent words with no operator between them (`MIT License`,
+ * `X WITH exception`) stay one id. Throws on a malformed expression (unbalanced parentheses, a dangling operator).
+ */
 export function alternatives(expression) {
-  return expression
-    .replace(/[()]/g, ' ')
-    .split(/\s+OR\s+/i)
-    .map((alt) => alt.split(/\s+AND\s+/i).map((id) => id.trim()).filter(Boolean));
+  const tokens = expression.match(/[()]|[^\s()]+/g) ?? [];
+  let pos = 0;
+  const peek = () => tokens[pos];
+  const isOp = (t, op) => t !== undefined && t.toUpperCase() === op;
+  const fail = (why) => {
+    throw new Error(`malformed licence expression "${expression}": ${why}`);
+  };
+  // or := and (OR and)*   and := atom (AND atom)*   atom := '(' or ')' | word+
+  const parseOr = () => {
+    let alts = parseAnd();
+    while (isOp(peek(), 'OR')) {
+      pos++;
+      alts = alts.concat(parseAnd());
+    }
+    return alts;
+  };
+  const parseAnd = () => {
+    let alts = parseAtom();
+    while (isOp(peek(), 'AND')) {
+      pos++;
+      const right = parseAtom();
+      alts = alts.flatMap((left) => right.map((r) => [...left, ...r]));
+    }
+    return alts;
+  };
+  const parseAtom = () => {
+    const t = peek();
+    if (t === '(') {
+      pos++;
+      const alts = parseOr();
+      if (peek() !== ')') fail('missing )');
+      pos++;
+      return alts;
+    }
+    const words = [];
+    while (peek() !== undefined && peek() !== '(' && peek() !== ')' && !isOp(peek(), 'AND') && !isOp(peek(), 'OR')) words.push(tokens[pos++]);
+    if (!words.length) fail(t === undefined ? 'ends early' : `unexpected "${t}"`);
+    return [[words.join(' ')]];
+  };
+  const alts = parseOr();
+  if (pos < tokens.length) fail(`unexpected "${peek()}"`);
+  return alts;
 }
 
 /** 'ok' | 'denied' | 'unnamed' for one licence id; `X WITH exception` is judged as X. */
@@ -87,8 +130,13 @@ export function judgeId(id) {
 /** 'ok' | 'denied' | 'unnamed' for one SPDX expression. */
 export function judge(expression) {
   if (!expression || UNNAMED.test(expression.trim())) return 'unnamed';
-  const alts = alternatives(expression);
-  if (alts.some((ids) => ids.length && ids.every((id) => judgeId(id) === 'ok'))) return 'ok';
+  let alts;
+  try {
+    alts = alternatives(expression);
+  } catch {
+    return 'unnamed';
+  }
+  if (alts.some((ids) => ids.every((id) => judgeId(id) === 'ok'))) return 'ok';
   if (alts.every((ids) => ids.some((id) => judgeId(id) === 'denied'))) return 'denied';
   return 'unnamed';
 }
