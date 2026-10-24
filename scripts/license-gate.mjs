@@ -134,7 +134,10 @@ export function judge(expression) {
   try {
     alts = alternatives(expression);
   } catch {
-    return 'unnamed';
+    // A garbled expression cannot be trusted to offer a way out: if it names a denied licence anywhere, it is denied,
+    // so no clarification can vouch it through. Otherwise it is unnamed, like any licence the gate cannot read.
+    const ids = expression.split(/[\s()]+/).filter((w) => w && !/^(?:AND|OR|WITH)$/i.test(w));
+    return ids.some((id) => judgeId(id) === 'denied') ? 'denied' : 'unnamed';
   }
   if (alts.some((ids) => ids.every((id) => judgeId(id) === 'ok'))) return 'ok';
   if (alts.every((ids) => ids.some((id) => judgeId(id) === 'denied'))) return 'denied';

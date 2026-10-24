@@ -12,6 +12,14 @@ describe('the licence gate', () => {
     expect(judgeId('BSD-3-Clause')).toBe('ok');
   });
 
+  it('denies a garbled expression that names a denied licence, so no clarification can vouch it through', () => {
+    for (const garbled of ['GPL-3.0 OR', '(GPL-3.0', 'GPL-3.0)', 'AGPL-3.0 AND AND MIT', '(MIT OR SSPL-1.0']) expect(judge(garbled)).toBe('denied');
+    expect(violations([{ name: 'x', version: '1', license: 'GPL-3.0 OR' }], [{ package: 'x', license: 'MIT', reason: 'trust me' }], [])).toHaveLength(1);
+    // Garbled but naming nothing denied: unnamed, and a clarification may vouch for it.
+    expect(judge('(MIT OR')).toBe('unnamed');
+    expect(violations([{ name: 'y', version: '1', license: '(MIT OR' }], [{ package: 'y', license: 'MIT', reason: 'MIT in its LICENSE file' }], [])).toHaveLength(0);
+  });
+
   it('calls a licence it cannot name unnamed, however harmless it sounds', () => {
     expect(judge('BSD')).toBe('unnamed');
     expect(judge('Apache')).toBe('unnamed');
